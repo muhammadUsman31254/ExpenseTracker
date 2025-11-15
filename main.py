@@ -33,7 +33,7 @@ init_db()
 # --- Tools ---
 
 @mcp.tool()
-async def add_expense(amount: float, category: str, description: str = "") -> dict:
+async def add_expense(amount: float, category: str, description: str = "", **kwargs) -> dict:
     """Add a new expense asynchronously"""
     date = datetime.now().strftime("%Y-%m-%d")
     try:
@@ -48,26 +48,32 @@ async def add_expense(amount: float, category: str, description: str = "") -> di
         return {"status": "error", "message": str(e)}
 
 @mcp.tool()
-async def list_expenses() -> list[dict]:
+async def list_expenses(**kwargs) -> list[dict]:
     """List all expenses asynchronously"""
-    async with aiosqlite.connect(DB_FILE) as conn:
-        cur = await conn.execute("SELECT id, amount, category, description, date FROM expenses")
-        rows = await cur.fetchall()
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, r)) for r in rows]
+    try:
+        async with aiosqlite.connect(DB_FILE) as conn:
+            cur = await conn.execute("SELECT id, amount, category, description, date FROM expenses")
+            rows = await cur.fetchall()
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in rows]
+    except Exception as e:
+        return [{"status": "error", "message": str(e)}]
 
 @mcp.tool()
-async def get_summary() -> dict:
+async def get_summary(**kwargs) -> dict:
     """Return total and category-wise expenses asynchronously"""
-    async with aiosqlite.connect(DB_FILE) as conn:
-        cur = await conn.execute("SELECT SUM(amount) FROM expenses")
-        total = (await cur.fetchone())[0] or 0
+    try:
+        async with aiosqlite.connect(DB_FILE) as conn:
+            cur = await conn.execute("SELECT SUM(amount) FROM expenses")
+            total = (await cur.fetchone())[0] or 0
 
-        cur = await conn.execute("SELECT category, SUM(amount) FROM expenses GROUP BY category")
-        breakdown_rows = await cur.fetchall()
-        breakdown = {row[0]: row[1] for row in breakdown_rows}
+            cur = await conn.execute("SELECT category, SUM(amount) FROM expenses GROUP BY category")
+            breakdown_rows = await cur.fetchall()
+            breakdown = {row[0]: row[1] for row in breakdown_rows}
 
-        return {"total": total, "by_category": breakdown}
+            return {"total": total, "by_category": breakdown}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 # --- Run server ---
 if __name__ == "__main__":
