@@ -11,7 +11,7 @@ DB_FILE = os.path.join(os.path.dirname(__file__), "expenses.db")
 
 # --- Initialize DB ---
 def init_db():
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+    with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("""
             CREATE TABLE IF NOT EXISTS expenses (
@@ -33,7 +33,7 @@ def add_expense(amount: float, category: str, description: str = "") -> str:
     """Add a new expense"""
     date = datetime.now().strftime("%Y-%m-%d")  # only date
     print(f"[ADD] {amount}, {category}, {description} on {date}")  # debug log
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+    with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute(
             "INSERT INTO expenses (amount, category, description, date) VALUES (?, ?, ?, ?)",
@@ -45,7 +45,7 @@ def add_expense(amount: float, category: str, description: str = "") -> str:
 @mcp.tool()
 def list_expenses() -> list[dict]:
     """Return all expenses"""
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+    with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("SELECT id, amount, category, description, date FROM expenses")
         rows = c.fetchall()
@@ -57,7 +57,7 @@ def list_expenses() -> list[dict]:
 @mcp.tool()
 def get_summary() -> dict:
     """Return total and category-wise expenses"""
-    with sqlite3.connect(DB_FILE, check_same_thread=False) as conn:
+    with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
         c.execute("SELECT SUM(amount) FROM expenses")
         total = c.fetchone()[0] or 0
