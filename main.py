@@ -9,13 +9,13 @@ mcp = FastMCP("Expense Tracker")
 
 # --- Database path (writable location) ---
 DB_FILE = os.path.join(tempfile.gettempdir(), "expenses.db")
-print(f"Database path: {DB_FILE}")
+print(f"Database path: {DB_FILE}")  # Optional debug
 
 # --- Initialize DB synchronously ---
 def init_db():
     import sqlite3
     with sqlite3.connect(DB_FILE) as conn:
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA journal_mode=WAL")  # Allows safe concurrent writes
         c = conn.cursor()
         c.execute("""
             CREATE TABLE IF NOT EXISTS expenses (
@@ -33,15 +33,9 @@ init_db()
 # --- Tools ---
 
 @mcp.tool()
-async def add_expense(amount: float, category: str, description: str = "", date: str = None) -> dict:
-    """
-    Add a new expense asynchronously.
-    Optional date must be YYYY-MM-DD. Defaults to today if not provided.
-    """
-    # Convert null from MCP adapter to valid values
-    description = description or ""
-    date = date or datetime.now().strftime("%Y-%m-%d")
-
+async def add_expense(amount: float, category: str, description: str = "") -> dict:
+    """Add a new expense asynchronously"""
+    date = datetime.now().strftime("%Y-%m-%d")
     try:
         async with aiosqlite.connect(DB_FILE) as conn:
             cur = await conn.execute(
@@ -49,77 +43,31 @@ async def add_expense(amount: float, category: str, description: str = "", date:
                 (amount, category, description, date)
             )
             await conn.commit()
-            return {
-                "status": "success",
-                "id": cur.lastrowid,
-                "message": f"Added {amount} in {category} on {date}"
-            }
+            return {"status": "success", "id": cur.lastrowid, "message": f"Added {amount} in {category} on {date}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 @mcp.tool()
-async def list_expenses(start_date: str = None, end_date: str = None, category: str = None) -> list[dict]:
-    """
-    List all expenses asynchronously.
-    Optional filters: start_date, end_date (YYYY-MM-DD), category.
-    """
-    # Convert null from MCP adapter to valid values
-    start_date = start_date or "1900-01-01"
-    end_date = end_date or "2100-12-31"
-    category = category or None
-
-    query = "SELECT id, amount, category, description, date FROM expenses WHERE date BETWEEN ? AND ?"
-    params = [start_date, end_date]
-
-    if category:
-        query += " AND category = ?"
-        params.append(category)
-
-    query += " ORDER BY date DESC, id DESC"
-
-    try:
-        async with aiosqlite.connect(DB_FILE) as conn:
-            cur = await conn.execute(query, params)
-            rows = await cur.fetchall()
-            cols = [d[0] for d in cur.description]
-            return [dict(zip(cols, r)) for r in rows]
-    except Exception as e:
-        return [{"status": "error", "message": str(e)}]
+async def list_expenses() -> list[dict]:
+    """List all expenses asynchronously"""
+    async with aiosqlite.connect(DB_FILE) as conn:
+        cur = await conn.execute("SELECT id, amount, category, description, date FROM expenses")
+        rows = await cur.fetchall()
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in rows]
 
 @mcp.tool()
-async def get_summary(start_date: str = None, end_date: str = None, category: str = None) -> dict:
-    """
-    Summarize total and category-wise expenses asynchronously.
-    Optional filters: start_date, end_date (YYYY-MM-DD), category.
-    """
-    # Convert null from MCP adapter to valid values
-    start_date = start_date or "1900-01-01"
-    end_date = end_date or "2100-12-31"
-    category = category or None
+async def get_summary() -> dict:
+    """Return total and category-wise expenses asynchronously"""
+    async with aiosqlite.connect(DB_FILE) as conn:
+        cur = await conn.execute("SELECT SUM(amount) FROM expenses")
+        total = (await cur.fetchone())[0] or 0
 
-    total_query = "SELECT SUM(amount) FROM expenses WHERE date BETWEEN ? AND ?"
-    breakdown_query = "SELECT category, SUM(amount) FROM expenses WHERE date BETWEEN ? AND ?"
-    params = [start_date, end_date]
+        cur = await conn.execute("SELECT category, SUM(amount) FROM expenses GROUP BY category")
+        breakdown_rows = await cur.fetchall()
+        breakdown = {row[0]: row[1] for row in breakdown_rows}
 
-    if category:
-        total_query += " AND category = ?"
-        breakdown_query += " AND category = ?"
-        params.append(category)
-
-    breakdown_query += " GROUP BY category ORDER BY SUM(amount) DESC"
-
-    try:
-        async with aiosqlite.connect(DB_FILE) as conn:
-            cur = await conn.execute(total_query, params)
-            total = (await cur.fetchone())[0] or 0
-
-            cur = await conn.execute(breakdown_query, params)
-            rows = await cur.fetchall()
-            breakdown = {row[0]: row[1] for row in rows}
-
-            return {"total": total, "by_category": breakdown}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"total": total, "by_category": breakdown}
 
 # --- Run server ---
 if __name__ == "__main__":
