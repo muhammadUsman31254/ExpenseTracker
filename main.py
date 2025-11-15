@@ -34,8 +34,14 @@ init_db()
 
 @mcp.tool()
 async def add_expense(amount: float, category: str, description: str = "", date: str = None) -> dict:
-    """Add a new expense asynchronously, optional date (YYYY-MM-DD)"""
+    """
+    Add a new expense asynchronously.
+    Optional date must be YYYY-MM-DD. Defaults to today if not provided.
+    """
+    # Convert null from MCP adapter to valid values
+    description = description or ""
     date = date or datetime.now().strftime("%Y-%m-%d")
+
     try:
         async with aiosqlite.connect(DB_FILE) as conn:
             cur = await conn.execute(
@@ -43,18 +49,24 @@ async def add_expense(amount: float, category: str, description: str = "", date:
                 (amount, category, description, date)
             )
             await conn.commit()
-            return {"status": "success", "id": cur.lastrowid, "message": f"Added {amount} in {category} on {date}"}
+            return {
+                "status": "success",
+                "id": cur.lastrowid,
+                "message": f"Added {amount} in {category} on {date}"
+            }
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 @mcp.tool()
 async def list_expenses(start_date: str = None, end_date: str = None, category: str = None) -> list[dict]:
     """
-    List expenses optionally filtered by date range and category.
-    Dates must be in YYYY-MM-DD format.
+    List all expenses asynchronously.
+    Optional filters: start_date, end_date (YYYY-MM-DD), category.
     """
+    # Convert null from MCP adapter to valid values
     start_date = start_date or "1900-01-01"
     end_date = end_date or "2100-12-31"
+    category = category or None
 
     query = "SELECT id, amount, category, description, date FROM expenses WHERE date BETWEEN ? AND ?"
     params = [start_date, end_date]
@@ -77,10 +89,13 @@ async def list_expenses(start_date: str = None, end_date: str = None, category: 
 @mcp.tool()
 async def get_summary(start_date: str = None, end_date: str = None, category: str = None) -> dict:
     """
-    Summarize total and category-wise expenses optionally filtered by date range and category.
+    Summarize total and category-wise expenses asynchronously.
+    Optional filters: start_date, end_date (YYYY-MM-DD), category.
     """
+    # Convert null from MCP adapter to valid values
     start_date = start_date or "1900-01-01"
     end_date = end_date or "2100-12-31"
+    category = category or None
 
     total_query = "SELECT SUM(amount) FROM expenses WHERE date BETWEEN ? AND ?"
     breakdown_query = "SELECT category, SUM(amount) FROM expenses WHERE date BETWEEN ? AND ?"
