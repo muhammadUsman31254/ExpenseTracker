@@ -1,17 +1,21 @@
 from fastmcp import FastMCP
-import sqlite3
 import os
+import tempfile
+import aiosqlite
 from datetime import datetime
 
-# Create MCP server
+# --- MCP server ---
 mcp = FastMCP("Expense Tracker")
 
-# Database path (absolute, relative to this file)
-DB_FILE = os.path.join(os.path.dirname(__file__), "expenses.db")
+# --- Database path (writable location) ---
+DB_FILE = os.path.join(tempfile.gettempdir(), "expenses.db")
+print(f"Database path: {DB_FILE}")  # Optional debug
 
-# --- Initialize DB ---
+# --- Initialize DB synchronously ---
 def init_db():
+    import sqlite3
     with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")  # Allows safe concurrent writes
         c = conn.cursor()
         c.execute("""
             CREATE TABLE IF NOT EXISTS expenses (
@@ -29,43 +33,41 @@ init_db()
 # --- Tools ---
 
 @mcp.tool()
-def add_expense(amount: float, category: str, description: str = "") -> str:
-    """Add a new expense"""
-    date = datetime.now().strftime("%Y-%m-%d")  # only date
-    print(f"[ADD] {amount}, {category}, {description} on {date}")  # debug log
-    with sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute(
-            "INSERT INTO expenses (amount, category, description, date) VALUES (?, ?, ?, ?)",
-            (amount, category, description, date)
-        )
-        conn.commit()
-    return f"Added expense: {amount} in {category} ({description}) on {date}"
+async def add_expense(amount: float, category: str, description: str = "") -> dict:
+    """Add a new expense asynchronously"""
+    date = datetime.now().strftime("%Y-%m-%d")
+    try:
+        async with aiosqlite.connect(DB_FILE) as conn:
+            cur = await conn.execute(
+                "INSERT INTO expenses (amount, category, description, date) VALUES (?, ?, ?, ?)",
+                (amount, category, description, date)
+            )
+            await conn.commit()
+            return {"status": "success", "id": cur.lastrowid, "message": f"Added {amount} in {category} on {date}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @mcp.tool()
-def list_expenses() -> list[dict]:
-    """Return all expenses"""
-    with sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute("SELECT id, amount, category, description, date FROM expenses")
-        rows = c.fetchall()
-    return [
-        {"id": r[0], "amount": r[1], "category": r[2], "description": r[3], "date": r[4]}
-        for r in rows
-    ]
+async def list_expenses() -> list[dict]:
+    """List all expenses asynchronously"""
+    async with aiosqlite.connect(DB_FILE) as conn:
+        cur = await conn.execute("SELECT id, amount, category, description, date FROM expenses")
+        rows = await cur.fetchall()
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in rows]
 
 @mcp.tool()
-def get_summary() -> dict:
-    """Return total and category-wise expenses"""
-    with sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute("SELECT SUM(amount) FROM expenses")
-        total = c.fetchone()[0] or 0
+async def get_summary() -> dict:
+    """Return total and category-wise expenses asynchronously"""
+    async with aiosqlite.connect(DB_FILE) as conn:
+        cur = await conn.execute("SELECT SUM(amount) FROM expenses")
+        total = (await cur.fetchone())[0] or 0
 
-        c.execute("SELECT category, SUM(amount) FROM expenses GROUP BY category")
-        breakdown = {row[0]: row[1] for row in c.fetchall()}
+        cur = await conn.execute("SELECT category, SUM(amount) FROM expenses GROUP BY category")
+        breakdown_rows = await cur.fetchall()
+        breakdown = {row[0]: row[1] for row in breakdown_rows}
 
-    return {"total": total, "by_category": breakdown}
+        return {"total": total, "by_category": breakdown}
 
 # --- Run server ---
 if __name__ == "__main__":
